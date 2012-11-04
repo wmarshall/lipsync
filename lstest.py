@@ -21,7 +21,22 @@
 #  MA 02110-1301, USA.
 #
 #
+import sys
 import psycopg2
 import psycopg2.extras
+from lipsync import LipSync
 
-conn = psycopg2.connect(connection_factory=psycopg2.extras.RealDictConnection, dbname = 'signins')
+
+def main()
+    conn = psycopg2.connect(connection_factory=psycopg2.extras.DictConnection,
+                            dbname = 'signins')
+
+    ls = LipSync(conn)
+    if len(sys.argv) > 1 and sys.argv[1] = 'server':
+        print ls.create_handshake_message_server()
+        return 0
+    print ls.create_handshake_message_client('signin_log')
+    return 0
+
+if __name__ == '__main__':
+    main()
