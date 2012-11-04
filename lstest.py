@@ -27,7 +27,7 @@ import psycopg2.extras
 from lipsync import LipSync
 
 
-def main()
+def main():
     conn = psycopg2.connect(connection_factory=psycopg2.extras.DictConnection,
                             dbname = 'signins')
 
