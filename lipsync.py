@@ -6,7 +6,7 @@
 #
 # How it works:
 # Wrapper - JSON - UTF8
-# Lock - Lock the database/ your view of it and enter a transaction
+# Lock - Lock the database/ your view of it and enter a transaction : TODO
 # Auth - Symmetric Encryption of a passphrase, both sides validate : TODO
 # - 1. "ENCRYPTEDPASS" - no other objects, just string
 # - 2. Terminate if Auth not acceptable
@@ -237,11 +237,13 @@ class LipSyncBase():
         except LipSyncError as e:
             print e.message
         finally:
-            self.conn.commit()
             self.terminate(sock)
             #~ sock.shutdown(socket.SHUT_RDWR)
             sock.close()
             print 'Socket Closed'
+        else:
+            self.conn.commit()
+
 
 class LipSyncClient(LipSyncBase):
     def do_status(self, sock, table):
