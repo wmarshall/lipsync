@@ -236,13 +236,13 @@ class LipSyncBase():
             self.do_response(sock, table, needed_records, need_to_send)
         except LipSyncError as e:
             print e.message
+        else:
+            self.conn.commit()
         finally:
             self.terminate(sock)
             #~ sock.shutdown(socket.SHUT_RDWR)
             sock.close()
             print 'Socket Closed'
-        else:
-            self.conn.commit()
 
 
 class LipSyncClient(LipSyncBase):
