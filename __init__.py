@@ -57,8 +57,10 @@ class HUPError(SyncError):
 
 class LipSyncBase():
     """WARNING: ONLY SUPPORTS POSTGRESQL/Psycopg2 AS OF 11/3"""
-    def __init__(self, connection):
+    def __init__(self, connection, encoder = None, decoder = None):
         self.conn = connection
+        self.encoder = encoder
+        self.decoder = decoder
 
     def init_table(self, table):
         cur = self.conn.cursor()
@@ -215,13 +217,13 @@ class LipSyncBase():
                 message += sock.recv(1)
                 if len(message) == start_len:
                     raise HUPError('recv returned no data (HUP?)')
-            message = json.loads(message[:-1])
+            message = json.loads(message[:-1], cls = self.decoder)
             return message
         finally:
             print 'Got message |', message, '|'
 
     def send_message(self, sock, message):
-        sock.send(json.dumps(message))
+        sock.send(json.dumps(message, cls = self.encoder))
         sock.send(ETB)
         print 'Sent ', message
 
@@ -236,13 +238,14 @@ class LipSyncBase():
             self.do_response(sock, table, needed_records, need_to_send)
         except LipSyncError as e:
             print e.message
+        else:
+            self.conn.commit()
         finally:
             self.terminate(sock)
             #~ sock.shutdown(socket.SHUT_RDWR)
             sock.close()
             print 'Socket Closed'
-        else:
-            self.conn.commit()
+
 
 
 class LipSyncClient(LipSyncBase):
@@ -261,14 +264,13 @@ class LipSyncClient(LipSyncBase):
         return table, needed_records
 
 class LipSyncServer(LipSyncBase):
-
     def listen(self, sock):
         try:
             while True:
                 print 'Waiting For connection'
                 conn = sock.accept()[0]
                 self.sync(conn)
-        except:
+        finally:
             sock.close()
 
     def do_status(self, sock, table):
