@@ -246,8 +246,6 @@ class LipSyncBase():
             sock.close()
             print 'Socket Closed'
 
-
-
 class LipSyncClient(LipSyncBase):
     def do_status(self, sock, table):
         self.update_table(table)
