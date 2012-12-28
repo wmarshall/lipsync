@@ -7,7 +7,7 @@
 # How it works:
 # Wrapper - JSON - UTF8
 # Lock - Lock the database/ your view of it and enter a transaction : TODO
-# Auth - Symmetric Encryption of a passphrase, both sides validate : TODO
+# Auth - Symmetric Encryption of a secret, both sides validate : TODO
 # - 1. "ENCRYPTEDPASS" - no other objects, just string
 # - 2. Terminate if Auth not acceptable
 # - 3. Else {LipSync_Continue = True}
@@ -61,15 +61,15 @@ class HUPError(SyncError):
 
 class LipSyncBase():
     """WARNING: ONLY SUPPORTS POSTGRESQL/Psycopg2"""
-    def __init__(self, connection, passphrase, encoder = None, decoder_hook = None):
+    def __init__(self, connection, secret, encoder = None, decoder_hook = None):
         self.conn = connection
-        self.key = SHA256.new(passphrase).hexdigest()
+        self.key = SHA256.new(secret)
+        self.cipher = AES.new(self.key.digest())
         self.encoder = encoder
         self.decoder_hook = decoder_hook
         self.logger = logging.getLogger('QRID')
         self.logger.setLevel(logging.DEBUG)
         self.logger.addHandler(logging.NullHandler())
-        #~ self.logger.addHandler(logging.StreamHandler())
 
     def init_table(self, table):
         cur = self.conn.cursor()
@@ -116,7 +116,7 @@ class LipSyncBase():
 
     def process_auth_message(self, sock):
         if not self.auth_valid(self.get_message(sock)):
-            raise AuthError('Invalid passphrase, aborting')
+            raise AuthError('Invalid secret, aborting')
         self.logger.debug('Auth Successful')
 
     def process_auth_response(self, sock):
@@ -126,16 +126,16 @@ class LipSyncBase():
             raise AuthError('Other side rejected Auth')
 
     def send_auth_message(self, sock):
-        self.send_message(sock, self.create_auth_message('TODO'))
+        self.send_message(sock, self.create_auth_message())
 
     def send_auth_response(self, sock, status):
         self.send_message(sock, self.create_continue_message(status))
 
     def auth_valid(self, auth):
-        return auth == [self.key]
+        return auth == [self.key.hexdigest()]
 
     def create_auth_message(self):
-        return [self.key]
+        return [self.key.hexdigest()]
 
     def do_auth(self, sock):
         self.send_auth_message(sock)
@@ -222,21 +222,29 @@ class LipSyncBase():
         return message
 
     def get_message(self, sock):
+        ciphertext = ''
         message = ''
         try:
             while (not message) or (message[-1] != ETB):
-                start_len = len(message)
-                message += sock.recv(1)
-                if len(message) == start_len:
+                start_len = len(ciphertext)
+                ciphertext += sock.recv(1)
+                if len(ciphertext) == start_len:
                     raise HUPError('recv returned no data (HUP?)')
+                if len(ciphertext) % AES.block_size == 0:
+                    message+=self.cipher.decrypt(ciphertext)
+                    ciphertext = ''
             message = json.loads(message[:-1], object_hook = self.decoder_hook)
             return message
         finally:
             self.logger.debug('Got message | ' + str(message) + ' |')
 
     def send_message(self, sock, message):
-        sock.send(json.dumps(message, cls = self.encoder))
-        sock.send(ETB)
+        plaintext = json.dumps(message, cls = self.encoder)
+        while (len(plaintext) + 1) % AES.block_size != 0:
+            plaintext += ' '
+        plaintext+=ETB
+        assert len(plaintext) % AES.block_size == 0
+        sock.send(self.cipher.encrypt(plaintext))
         self.logger.debug('Sent ' + str(message))
 
     def sync(self, sock, table = None):

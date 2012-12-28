@@ -37,7 +37,7 @@ def main():
         sock.bind(addr)
         sock.listen(1)
         print 'Listening on ', addr
-        lss = LipSyncServer(conn)
+        lss = LipSyncServer(conn,'TEST')
         lss.listen(sock)
         sock.close()
         return 0
@@ -46,7 +46,7 @@ def main():
     print 'Connecting to ', addr
     sock.connect(addr)
     print 'Connected'
-    lsc = LipSyncClient(conn)
+    lsc = LipSyncClient(conn,'TEST')
     print 'Syncing'
     print lsc.sync(sock, 'test')
     return 0
