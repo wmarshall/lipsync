@@ -227,7 +227,7 @@ class LipSyncBase():
         try:
             while (not message) or (message[-1] != ETB):
                 start_len = len(ciphertext)
-                ciphertext += sock.recv(1)
+                ciphertext += sock.recv(16)
                 if len(ciphertext) == start_len:
                     raise HUPError('recv returned no data (HUP?)')
                 if len(ciphertext) % AES.block_size == 0:
