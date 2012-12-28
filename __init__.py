@@ -26,6 +26,9 @@ from hashlib import sha1
 from uuid import uuid4
 from select import select
 from time import strftime
+from Crypto.Cipher import AES
+from Crypto.Hash import SHA256
+import logging
 import json
 import socket
 
@@ -33,6 +36,7 @@ UUID_COL_NAME = '_lipsync_uuid'
 LOCAL_ID_COL_NAME = '_local_lipsync_id'
 ETB = chr(0x17)
 CONTINUE = 'LipSync_Continue'
+DONE = 'LipSync_Done'
 
 TIMEOUT = 30
 
@@ -56,11 +60,16 @@ class HUPError(SyncError):
     pass
 
 class LipSyncBase():
-    """WARNING: ONLY SUPPORTS POSTGRESQL/Psycopg2 AS OF 11/3"""
-    def __init__(self, connection, encoder = None, decoder = None):
+    """WARNING: ONLY SUPPORTS POSTGRESQL/Psycopg2"""
+    def __init__(self, connection, passphrase, encoder = None, decoder_hook = None):
         self.conn = connection
+        self.key = SHA256.new(passphrase).hexdigest()
         self.encoder = encoder
-        self.decoder = decoder
+        self.decoder_hook = decoder_hook
+        self.logger = logging.getLogger('QRID')
+        self.logger.setLevel(logging.DEBUG)
+        self.logger.addHandler(logging.NullHandler())
+        #~ self.logger.addHandler(logging.StreamHandler())
 
     def init_table(self, table):
         cur = self.conn.cursor()
@@ -68,7 +77,7 @@ class LipSyncBase():
         if UUID_COL_NAME not in cols:
             cur.execute('ALTER TABLE ' + table + ' ADD COLUMN ' + UUID_COL_NAME + ' UUID')
         if LOCAL_ID_COL_NAME not in cols:
-            cur.execute('ALTER TABLE ' + table + ' ADD COLUMN ' + LOCAL_ID_COL_NAME + ' SERIAL PRIMARY KEY')
+            cur.execute('ALTER TABLE ' + table + ' ADD COLUMN ' + LOCAL_ID_COL_NAME + ' SERIAL UNIQUE')
         self.conn.commit()
 
     def update_table(self, table):
@@ -108,7 +117,7 @@ class LipSyncBase():
     def process_auth_message(self, sock):
         if not self.auth_valid(self.get_message(sock)):
             raise AuthError('Invalid passphrase, aborting')
-        print 'Auth Successful'
+        self.logger.debug('Auth Successful')
 
     def process_auth_response(self, sock):
         try:
@@ -123,10 +132,10 @@ class LipSyncBase():
         self.send_message(sock, self.create_continue_message(status))
 
     def auth_valid(self, auth):
-        return auth == 'TODO'
+        return auth == [self.key]
 
-    def create_auth_message(self, key):
-        return 'TODO'
+    def create_auth_message(self):
+        return [self.key]
 
     def do_auth(self, sock):
         self.send_auth_message(sock)
@@ -161,20 +170,23 @@ class LipSyncBase():
     def do_request(self, sock, needed_records):
         self.send_request_message(sock, needed_records)
         records_to_send = self.process_request_message(sock)
-        print 'Need to Send ', records_to_send
+        self.logger.debug('Need to Send ' + str(records_to_send))
         return records_to_send
 
     def process_response(self, sock, table, needed_records):
         cur = self.conn.cursor()
         while True:
             message = self.check_terminated(self.get_message(sock))
-            if message['uuid'] not in needed_records:
+            if message.get(DONE):
+                self.logger.debug('Other side done sending')
+                break
+            elif message['uuid'] not in needed_records:
                 continue
             cur.execute('INSERT INTO ' + table + '(' +
                         ', '.join(message['record'].keys()) + ') VALUES (' +
                         ', '.join(['%('+x+')s' for x in message['record'].keys()]) +')', message['record'])
             cur.execute('SELECT * FROM '+table)
-            print 'Table contents', cur.fetchall()
+            self.logger.debug('Table contents' + str(cur.fetchall()))
 
     def send_response_messages(self, sock, table, uuids):
         cols = self.get_col_map(table)
@@ -184,7 +196,7 @@ class LipSyncBase():
                         UUID_COL_NAME + ' = %(u)s', {'u': uuid})
             col_data_dict = dict(zip(cols, cur.fetchone()))
             self.send_message(sock, {'uuid': uuid, 'record': col_data_dict})
-        self.send_message(sock, self.create_continue_message(False))
+        self.send_message(sock, {DONE:True})
         self.conn.commit()
 
     def do_response(self, sock, table, needed_records, need_to_send):
@@ -192,16 +204,16 @@ class LipSyncBase():
         self.process_response(sock, table, needed_records)
 
     def terminate(self, sock):
-        print 'Terminating at ', strftime('%H:%M:%S')
+        self.logger.debug('Terminating at '+ str(strftime('%H:%M:%S')))
         self.send_message(sock, self.create_continue_message(False))
-        print 'Sent Term Message'
+        self.logger.debug('Sent Term Message')
         message = None
         while (not message) or (message.get(CONTINUE)):
             if not select([sock],[],[], TIMEOUT)[0]:
-                print 'Timeout'
+                self.logger.debug('Timeout')
                 break
             else:
-                print 'Getting message'
+                self.logger.debug('Getting message')
                 message = self.get_message(sock)
 
     def check_terminated(self, message):
@@ -217,15 +229,15 @@ class LipSyncBase():
                 message += sock.recv(1)
                 if len(message) == start_len:
                     raise HUPError('recv returned no data (HUP?)')
-            message = json.loads(message[:-1], cls = self.decoder)
+            message = json.loads(message[:-1], object_hook = self.decoder_hook)
             return message
         finally:
-            print 'Got message |', message, '|'
+            self.logger.debug('Got message | ' + str(message) + ' |')
 
     def send_message(self, sock, message):
         sock.send(json.dumps(message, cls = self.encoder))
         sock.send(ETB)
-        print 'Sent ', message
+        self.logger.debug('Sent ' + str(message))
 
     def sync(self, sock, table = None):
         """ table is None for server mode"""
@@ -237,21 +249,21 @@ class LipSyncBase():
             need_to_send = self.do_request(sock, needed_records)
             self.do_response(sock, table, needed_records, need_to_send)
         except LipSyncError as e:
-            print e.message
+            self.logger.debug('Exception ' + str(e))
         else:
             self.conn.commit()
         finally:
             self.terminate(sock)
             #~ sock.shutdown(socket.SHUT_RDWR)
             sock.close()
-            print 'Socket Closed'
+            self.logger.debug('Socket Closed')
 
 class LipSyncClient(LipSyncBase):
     def do_status(self, sock, table):
         self.update_table(table)
         self.send_status_message(sock, table)
         table, needed_records = self.process_status_message(sock, table)
-        print needed_records
+        self.logger.debug(needed_records)
         return table, needed_records
 
     def process_status_message(self, sock, table):
@@ -265,7 +277,7 @@ class LipSyncServer(LipSyncBase):
     def listen(self, sock):
         try:
             while True:
-                print 'Waiting For connection'
+                self.logger.debug('Waiting For connection')
                 conn = sock.accept()[0]
                 self.sync(conn)
         finally:
@@ -274,7 +286,7 @@ class LipSyncServer(LipSyncBase):
     def do_status(self, sock, table):
         table, needed_records = self.process_status_message(sock)
         self.send_status_message(sock, table)
-        print needed_records
+        self.logger.debug(needed_records)
         return table, needed_records
 
     def process_status_message(self, sock):
@@ -284,6 +296,6 @@ class LipSyncServer(LipSyncBase):
             needed_records = list(set(message['uuids']) - set(self.get_uuid_map(message['table'])))
             return message['table'], needed_records
         except Exception as e:
-            print e
+            self.logger.debug(e)
             raise LipSyncError(str(e))
 
