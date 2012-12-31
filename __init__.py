@@ -1,6 +1,5 @@
 # lipsync.py
 # Reference implementation
-from hashlib import sha1
 from uuid import uuid4
 from select import select
 from time import strftime
@@ -40,7 +39,7 @@ class HUPError(SyncError):
 class LipSyncBase():
     """WARNING: ONLY SUPPORTS POSTGRESQL/Psycopg2"""
     def __init__(self, connection, secret, encoder = None, decoder_hook = None,
-                 log_handler = logging.NullHandler()):
+                 log_handler = None):
         self.conn = connection
         self.key = SHA256.new(secret)
         self.cipher = AES.new(self.key.digest())
@@ -48,7 +47,8 @@ class LipSyncBase():
         self.decoder_hook = decoder_hook
         self.logger = logging.getLogger('QRID')
         self.logger.setLevel(logging.DEBUG)
-        self.logger.addHandler(log_handler)
+        if log_handler:
+            self.logger.addHandler(log_handler)
 
     def init_table(self, table):
         cur = self.conn.cursor()
