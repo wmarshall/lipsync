@@ -77,7 +77,7 @@ class LipSyncBase():
         cur = self.conn.cursor()
         cols = []
         cur.execute('SELECT * FROM ' + table)
-        cols = [ col.name for col in cur.description ]
+        cols = [ col[0] for col in cur.description ]
         if omit_local:
             cols.remove(LOCAL_ID_COL_NAME)
         self.conn.commit()
