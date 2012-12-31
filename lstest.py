@@ -22,20 +22,33 @@
 #
 #
 import sys
+import socket
 import psycopg2
 import psycopg2.extras
-from lipsync import LipSync
+from lipsync import LipSyncClient, LipSyncServer
 
+addr = ('0.0.0.0',8000)
 
 def main():
-    conn = psycopg2.connect(connection_factory=psycopg2.extras.DictConnection,
-                            dbname = 'signins')
-
-    ls = LipSync(conn)
-    if len(sys.argv) > 1 and sys.argv[1] = 'server':
-        print ls.create_handshake_message_server()
+    sock = socket.socket()
+    if len(sys.argv) > 1 and sys.argv[1] == 'server':
+        conn = psycopg2.connect(connection_factory=psycopg2.extras.DictConnection,
+                            dbname = 'testdb_server')
+        sock.bind(addr)
+        sock.listen(1)
+        print 'Listening on ', addr
+        lss = LipSyncServer(conn,'TEST')
+        lss.listen(sock)
+        sock.close()
         return 0
-    print ls.create_handshake_message_client('signin_log')
+    conn = psycopg2.connect(connection_factory=psycopg2.extras.DictConnection,
+                            dbname = 'testdb_client')
+    print 'Connecting to ', addr
+    sock.connect(addr)
+    print 'Connected'
+    lsc = LipSyncClient(conn,'TEST')
+    print 'Syncing'
+    print lsc.sync(sock, 'test')
     return 0
 
 if __name__ == '__main__':
