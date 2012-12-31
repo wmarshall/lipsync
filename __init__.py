@@ -1,27 +1,5 @@
 # lipsync.py
-# Initial lipsync implementation v0.1
-#
-# Lipsync is a wrapper around a database that provides syncing capabilites for
-# tables.
-#
-# How it works:
-# Wrapper - JSON - UTF8
-# Lock - Lock the database/ your view of it and enter a transaction : TODO
-# Auth - Symmetric Encryption of a secret, both sides validate : TODO
-# - 1. "ENCRYPTEDPASS" - no other objects, just string
-# - 2. Terminate if Auth not acceptable
-# - 3. Else {LipSync_Continue = True}
-# Status - set up table to sync
-# - 1. {table: tablename, uuids:[UUIDS]} from Client
-# - 2. {table: tablename, uuids:[UUIDS]} from server if it can sync tablename
-# - - 1. Else Terminate
-# Request - Each side asks for all of the rows they want
-# - 1. {need: [UUIDS]} from both
-# Response - Each side responds with row hash + row data
-# - 1. {uuid:UUID, record ={record}}
-# - 2. Terminate when done
-# Terminate - {LipSync_Continue = False} + wait 30s for {LipSync_Continue = False}
-# Commit - Commit the transaction
+# Reference implementation
 from hashlib import sha1
 from uuid import uuid4
 from select import select
@@ -61,7 +39,8 @@ class HUPError(SyncError):
 
 class LipSyncBase():
     """WARNING: ONLY SUPPORTS POSTGRESQL/Psycopg2"""
-    def __init__(self, connection, secret, encoder = None, decoder_hook = None):
+    def __init__(self, connection, secret, encoder = None, decoder_hook = None,
+                 log_handler = logging.NullHandler()):
         self.conn = connection
         self.key = SHA256.new(secret)
         self.cipher = AES.new(self.key.digest())
@@ -69,15 +48,17 @@ class LipSyncBase():
         self.decoder_hook = decoder_hook
         self.logger = logging.getLogger('QRID')
         self.logger.setLevel(logging.DEBUG)
-        self.logger.addHandler(logging.NullHandler())
+        self.logger.addHandler(log_handler)
 
     def init_table(self, table):
         cur = self.conn.cursor()
         cols = self.get_col_map(table, omit_local = False)
         if UUID_COL_NAME not in cols:
-            cur.execute('ALTER TABLE ' + table + ' ADD COLUMN ' + UUID_COL_NAME + ' UUID')
+            cur.execute('ALTER TABLE ' + table + ' ADD COLUMN ' +
+                        UUID_COL_NAME + ' UUID')
         if LOCAL_ID_COL_NAME not in cols:
-            cur.execute('ALTER TABLE ' + table + ' ADD COLUMN ' + LOCAL_ID_COL_NAME + ' SERIAL UNIQUE')
+            cur.execute('ALTER TABLE ' + table + ' ADD COLUMN ' +
+                        LOCAL_ID_COL_NAME + ' SERIAL UNIQUE')
         self.conn.commit()
 
     def update_table(self, table):
@@ -184,7 +165,9 @@ class LipSyncBase():
                 continue
             cur.execute('INSERT INTO ' + table + '(' +
                         ', '.join(message['record'].keys()) + ') VALUES (' +
-                        ', '.join(['%('+x+')s' for x in message['record'].keys()]) +')', message['record'])
+                        ', '.join(
+                            ['%('+x+')s' for x in message['record'].keys()]
+                            ) +')', message['record'])
             cur.execute('SELECT * FROM '+table)
             self.logger.debug('Table contents' + str(cur.fetchall()))
 
@@ -192,8 +175,8 @@ class LipSyncBase():
         cols = self.get_col_map(table)
         cur = self.conn.cursor()
         for uuid in uuids:
-            cur.execute('SELECT ' + ', '.join(cols) + ' FROM ' + table +' WHERE '+
-                        UUID_COL_NAME + ' = %(u)s', {'u': uuid})
+            cur.execute('SELECT ' + ', '.join(cols) + ' FROM ' + table +
+                        ' WHERE ' + UUID_COL_NAME + ' = %(u)s', {'u': uuid})
             col_data_dict = dict(zip(cols, cur.fetchone()))
             self.send_message(sock, {'uuid': uuid, 'record': col_data_dict})
         self.send_message(sock, {DONE:True})
@@ -277,8 +260,10 @@ class LipSyncClient(LipSyncBase):
     def process_status_message(self, sock, table):
         message = self.check_terminated(self.get_message(sock))
         if message['table'] != table:
-            raise SyncError('Wanted to sync %s. but server responded with %s' % table, message['table'])
-        needed_records = list(set(message['uuids']) - set(self.get_uuid_map(table)))
+            raise SyncError('Wanted to sync %s, But server responded with %s'
+                            % table, message['table'])
+        needed_records = list(set(message['uuids']) -
+                              set(self.get_uuid_map(table)))
         return table, needed_records
 
 class LipSyncServer(LipSyncBase):
@@ -301,7 +286,8 @@ class LipSyncServer(LipSyncBase):
         message = self.get_message(sock)
         try:
             self.update_table(message['table'])
-            needed_records = list(set(message['uuids']) - set(self.get_uuid_map(message['table'])))
+            needed_records = list(set(message['uuids']) -
+                                  set(self.get_uuid_map(message['table'])))
             return message['table'], needed_records
         except Exception as e:
             self.logger.debug(e)
