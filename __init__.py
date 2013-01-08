@@ -226,7 +226,8 @@ class LipSyncBase():
         while (len(plaintext) + 1) % AES.block_size != 0:
             plaintext += ' '
         plaintext+=ETB
-        assert len(plaintext) % AES.block_size == 0
+        if len(plaintext) % AES.block_size == 0:
+            self.logger.debug('Padded = |'+ plaintext+'|')
         sock.send(self.cipher.encrypt(plaintext))
         self.logger.debug('Sent ' + str(message))
 
@@ -273,6 +274,8 @@ class LipSyncServer(LipSyncBase):
                 self.logger.debug('Waiting For connection')
                 conn = sock.accept()[0]
                 self.sync(conn)
+        except:
+            pass
         finally:
             sock.close()
 
