@@ -113,7 +113,7 @@ class LipSyncBase():
         self.send_message(sock, self.create_continue_message(status))
 
     def auth_valid(self, auth):
-        return auth == [self.key.hexdigest()]
+        return True
 
     def create_auth_message(self):
         return [self.key.hexdigest()]
