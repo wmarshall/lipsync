@@ -205,16 +205,17 @@ class LipSyncBase():
         return message
 
     def get_message(self, sock):
+        ciphertext = ''
         message = ''
         try:
             while (not message) or (message[-1] != ETB):
-                start_len = len(message)
-                message += sock.recv(1)
-                if len(message) == start_len:
+                start_len = len(ciphertext)
+                ciphertext += sock.recv(16)
+                if len(ciphertext) == start_len:
                     raise HUPError('recv returned no data (HUP?)')
-                #if len(ciphertext) % AES.block_size == 0:
-                #    message+=self.cipher.decrypt(ciphertext)
-                #    ciphertext = ''
+                if len(ciphertext) % AES.block_size == 0:
+                    message+=self.cipher.decrypt(ciphertext)
+                    ciphertext = ''
             message = json.loads(message[:-1], object_hook = self.decoder_hook)
             return message
         finally:
@@ -222,11 +223,11 @@ class LipSyncBase():
 
     def send_message(self, sock, message):
         plaintext = json.dumps(message, cls = self.encoder)
-        #while (len(plaintext) + 1) % AES.block_size != 0:
-        #    plaintext += ' '
-        #plaintext+=ETB
-        #assert len(plaintext) % AES.block_size == 0
-        sock.send(plaintext)
+        while (len(plaintext) + 1) % AES.block_size != 0:
+            plaintext += ' '
+        plaintext+=ETB
+        assert len(plaintext) % AES.block_size == 0
+        sock.send(self.cipher.encrypt(plaintext))
         self.logger.debug('Sent ' + str(message))
 
     def sync(self, sock, table = None):
