@@ -210,12 +210,15 @@ class LipSyncBase():
         try:
             while (not message) or (message[-1] != ETB):
                 start_len = len(ciphertext)
-                ciphertext += sock.recv(16)
+                ciphertext += sock.recv(1)
                 if len(ciphertext) == start_len:
                     raise HUPError('recv returned no data (HUP?)')
                 if len(ciphertext) % AES.block_size == 0:
-                    message+=self.cipher.decrypt(ciphertext)
+                    decrypted = self.cipher.decrypt(ciphertext)
+                    print "block: " + decrypted
+                    message+= decrypted
                     ciphertext = ''
+            print "got json:" + message
             message = json.loads(message[:-1], object_hook = self.decoder_hook)
             return message
         finally:
