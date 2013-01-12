@@ -9,6 +9,9 @@ import logging
 import json
 import socket
 
+from random import randint
+from time import sleep
+
 UUID_COL_NAME = '_lipsync_uuid'
 LOCAL_ID_COL_NAME = '_local_lipsync_id'
 ETB = chr(0x17)
@@ -231,6 +234,7 @@ class LipSyncBase():
         plaintext+=ETB
         if len(plaintext) % AES.block_size == 0:
             self.logger.debug('Padded = |'+ plaintext+'|')
+        #~ sleep(randint(0,30))
         sock.send(self.cipher.encrypt(plaintext))
         self.logger.debug('Sent ' + str(message))
 
