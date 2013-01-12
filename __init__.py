@@ -276,15 +276,14 @@ class LipSyncClient(LipSyncBase):
 
 class LipSyncServer(LipSyncBase):
     def listen(self, sock):
-        try:
-            while True:
-                self.logger.debug('Waiting For connection')
-                conn = sock.accept()[0]
-                self.sync(conn)
-        except:
-            pass
-        finally:
-            sock.close()
+        while True:
+	   try:
+               self.logger.debug('Waiting For connection')
+               conn = sock.accept()[0]
+               self.sync(conn)
+           except:
+               pass
+        sock.close()
 
     def do_status(self, sock, table):
         table, needed_records = self.process_status_message(sock)
