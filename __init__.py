@@ -136,13 +136,13 @@ class LipSyncBase():
     def send_status_message(self, sock, table):
         self.send_message(sock, self.create_status_message(table))
 
-    def do_status(self, sock, table):
-        if not table:
-            self.process_status_message(sock)
-            self.send_status_message(sock, table)
-        else:
-            self.send_status_message(sock, table)
-            self.process_status_message(sock)
+    #~ def do_status(self, sock, table):
+        #~ if not table:
+            #~ self.process_status_message(sock)
+            #~ self.send_status_message(sock, table)
+        #~ else:
+            #~ self.send_status_message(sock, table)
+            #~ self.process_status_message(sock)
 
     def process_request_message(self, sock):
         message = self.get_message(sock)
