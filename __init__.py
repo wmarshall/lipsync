@@ -5,6 +5,7 @@ from select import select
 from time import strftime
 from Crypto.Cipher import AES
 from Crypto.Hash import SHA256
+from threading import Thread
 import logging
 import json
 import socket
@@ -38,6 +39,13 @@ class TerminatedError(SyncError):
 
 class HUPError(SyncError):
     pass
+
+class SyncThread(Thread):
+    def __init__ (self,connection):
+        self.connection=connection
+    
+    def run(self):
+        self.sync(self.connection)
 
 class LipSyncBase():
     """WARNING: ONLY SUPPORTS POSTGRESQL/Psycopg2"""
@@ -280,7 +288,7 @@ class LipSyncServer(LipSyncBase):
 	   try:
                self.logger.debug('Waiting For connection')
                conn = sock.accept()[0]
-               self.sync(conn)
+               SyncThread(conn).start()
            except:
                pass
         sock.close()
@@ -301,4 +309,3 @@ class LipSyncServer(LipSyncBase):
         except Exception as e:
             self.logger.debug(e)
             raise LipSyncError(str(e))
-
