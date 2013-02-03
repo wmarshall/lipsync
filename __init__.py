@@ -43,7 +43,7 @@ class HUPError(SyncError):
 class SyncThread(Thread):
     def __init__ (self,connection):
         self.connection=connection
-    
+
     def run(self):
         self.sync(self.connection)
 
@@ -285,12 +285,12 @@ class LipSyncClient(LipSyncBase):
 class LipSyncServer(LipSyncBase):
     def listen(self, sock):
         while True:
-	   try:
-               self.logger.debug('Waiting For connection')
-               conn = sock.accept()[0]
-               SyncThread(conn).start()
-           except:
-               pass
+            try:
+                self.logger.debug('Waiting For connection')
+                conn = sock.accept()[0]
+                SyncThread(conn).start()
+            except:
+                pass
         sock.close()
 
     def do_status(self, sock, table):
