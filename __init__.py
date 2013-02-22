@@ -41,25 +41,31 @@ class HUPError(SyncError):
     pass
 
 class SyncThread(Thread):
-    def __init__ (self,connection):
-        self.connection=connection
+    def __init__(self, sock, connection, secret, encoder = None, decoder_hook = None, log_handler = None, *args, **kwargs):
+        super(SyncThread, self).__init__()
+        self.sock = sock
+        self.lss = LipSyncServer(connection, secret, encoder, decoder_hook, log_handler)
 
     def run(self):
-        self.sync(self.connection)
+        self.lss.sync(self.sock)
 
 class LipSyncBase():
     """WARNING: ONLY SUPPORTS POSTGRESQL/Psycopg2"""
     def __init__(self, connection, secret, encoder = None, decoder_hook = None,
                  log_handler = None):
         self.conn = connection
+        self.secret = secret
         self.key = SHA256.new(secret)
         self.cipher = AES.new(self.key.digest())
         self.encoder = encoder
         self.decoder_hook = decoder_hook
         self.logger = logging.getLogger('QRID')
         self.logger.setLevel(logging.DEBUG)
+        self.log_handler = log_handler
         if log_handler:
             self.logger.addHandler(log_handler)
+        else:
+            self.logger.addHandler(logging.StreamHandler())
 
     def init_table(self, table):
         cur = self.conn.cursor()
@@ -287,8 +293,8 @@ class LipSyncServer(LipSyncBase):
         while True:
             try:
                 self.logger.debug('Waiting For connection')
-                conn = sock.accept()[0]
-                SyncThread(conn).start()
+                syncsock = sock.accept()[0]
+                SyncThread(syncsock, self.conn, self.secret, self.encoder, self.decoder_hook, self.log_handler).start()
             except:
                 pass
         sock.close()
