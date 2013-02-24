@@ -261,14 +261,14 @@ class LipSyncBase():
             table, needed_records = self.do_status(sock, table)
             need_to_send = self.do_request(sock, needed_records)
             self.do_response(sock, table, needed_records, need_to_send)
+            self.conn.commit()
         except LipSyncError as e:
             self.logger.debug('Exception ' + str(e))
-        else:
-            self.conn.commit()
         finally:
             self.terminate(sock)
             #~ sock.shutdown(socket.SHUT_RDWR)
             sock.close()
+            self.conn.rollback()
             self.logger.debug('Socket Closed')
 
 class LipSyncClient(LipSyncBase):
@@ -276,7 +276,7 @@ class LipSyncClient(LipSyncBase):
         self.update_table(table)
         self.send_status_message(sock, table)
         table, needed_records = self.process_status_message(sock, table)
-        self.logger.debug(needed_records)
+        self.logger.debug('Needed Records = '+needed_records)
         return table, needed_records
 
     def process_status_message(self, sock, table):
@@ -296,13 +296,13 @@ class LipSyncServer(LipSyncBase):
                 syncsock = sock.accept()[0]
                 SyncThread(syncsock, self.conn, self.secret, self.encoder, self.decoder_hook, self.log_handler).start()
             except:
-                pass
+                self.conn.rollback()
         sock.close()
 
     def do_status(self, sock, table):
         table, needed_records = self.process_status_message(sock)
         self.send_status_message(sock, table)
-        self.logger.debug(needed_records)
+        self.logger.debug('Needed Records = ' +str(needed_records))
         return table, needed_records
 
     def process_status_message(self, sock):
