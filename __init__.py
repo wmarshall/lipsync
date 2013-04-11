@@ -19,7 +19,7 @@ ETB = chr(0x17)
 CONTINUE = 'LipSync_Continue'
 DONE = 'LipSync_Done'
 
-TIMEOUT = 30
+TIMEOUT = 360
 
 class LipSyncError(Exception):
     def __init__(self, message):
@@ -180,11 +180,18 @@ class LipSyncBase():
                 break
             elif message['uuid'] not in needed_records:
                 continue
-            cur.execute('INSERT INTO ' + table + '(' +
-                        ', '.join(message['record'].keys()) + ') VALUES (' +
-                        ', '.join(
-                            ['%('+x+')s' for x in message['record'].keys()]
-                            ) +')', message['record'])
+	    try:
+		    for key in message['record'].keys():
+			if not message['record'].get(key):
+			   message['record'][key] = 0
+	            cur.execute('INSERT INTO ' + table + '(' +
+        	                ', '.join(message['record'].keys()) + ') VALUES (' +
+                	        ', '.join(
+                        	    ['%('+x+')s' for x in message['record'].keys()]
+                            	) +')', message['record'])
+		    self.conn.commit()
+	    finally:
+		    self.conn.rollback()
             cur.execute('SELECT * FROM '+table)
             self.logger.debug('Table contents' + str(cur.fetchall()))
 
@@ -246,8 +253,9 @@ class LipSyncBase():
         while (len(plaintext) + 1) % AES.block_size != 0:
             plaintext += ' '
         plaintext+=ETB
-        if len(plaintext) % AES.block_size == 0:
-            self.logger.debug('Padded = |'+ plaintext+'|')
+        self.logger.debug('Padded = |'+ plaintext+'|')
+        self.logger.debug('msglen = '+str(len(plaintext)))
+	
         #~ sleep(randint(0,30))
         sock.send(self.cipher.encrypt(plaintext))
         self.logger.debug('Sent ' + str(message))
