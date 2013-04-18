@@ -256,8 +256,12 @@ class LipSyncBase():
         self.logger.debug('Padded = |'+ plaintext+'|')
         self.logger.debug('msglen = '+str(len(plaintext)))
 	
-        #~ sleep(randint(0,30))
-        sock.send(self.cipher.encrypt(plaintext))
+        #sleep()
+	ciphertext = self.cipher.encrypt(plaintext)
+	length = len(plaintext)
+	while length != 0:
+	    self.logger.debug('Length to send = '+str(length))
+            length -= sock.send(ciphertext[len(ciphertext)-length:])
         self.logger.debug('Sent ' + str(message))
 
     def sync(self, sock, table = None):
