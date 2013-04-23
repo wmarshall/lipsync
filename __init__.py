@@ -19,7 +19,7 @@ ETB = chr(0x17)
 CONTINUE = 'LipSync_Continue'
 DONE = 'LipSync_Done'
 
-TIMEOUT = 360
+TIMEOUT = 30
 
 class LipSyncError(Exception):
     def __init__(self, message):
@@ -44,9 +44,10 @@ class SyncThread(Thread):
     def __init__(self, sock, connection, secret, encoder = None, decoder_hook = None, log_handler = None, *args, **kwargs):
         super(SyncThread, self).__init__()
         self.sock = sock
-        self.lss = LipSyncServer(connection, secret, encoder, decoder_hook, log_handler)
+        self.lss = LipSyncServer(connection, secret, encoder, decoder_hook, logging.NullHandler())
 
     def run(self):
+        self.lss.logger.debug('Starting SyncThread')
         self.lss.sync(self.sock)
 
 class LipSyncBase():
@@ -180,20 +181,21 @@ class LipSyncBase():
                 break
             elif message['uuid'] not in needed_records:
                 continue
-	    try:
-		    for key in message['record'].keys():
-			if not message['record'].get(key):
-			   message['record'][key] = 0
-	            cur.execute('INSERT INTO ' + table + '(' +
-        	                ', '.join(message['record'].keys()) + ') VALUES (' +
-                	        ', '.join(
-                        	    ['%('+x+')s' for x in message['record'].keys()]
-                            	) +')', message['record'])
-		    self.conn.commit()
-	    finally:
-		    self.conn.rollback()
-            cur.execute('SELECT * FROM '+table)
-            self.logger.debug('Table contents' + str(cur.fetchall()))
+            try:
+                self.logger.debug('Processing record = '+str(message['record']))
+                for key in message['record'].keys(): #fill in missing data to
+                    if not message['record'].get(key): #prevent bad coercion of null values
+                       message['record'][key] = 0
+                cur.execute('INSERT INTO ' + table + '(' +
+                            ', '.join(message['record'].keys()) + ') VALUES (' +
+                            ', '.join(
+                                ['%('+x+')s' for x in message['record'].keys()]
+                                ) +')', message['record'])
+                self.conn.commit()
+            finally:
+                self.conn.rollback()
+                cur.execute('SELECT * FROM '+table)
+                self.logger.debug('Table contents' + str(cur.fetchall()))
 
     def send_response_messages(self, sock, table, uuids):
         cols = self.get_col_map(table)
@@ -228,21 +230,31 @@ class LipSyncBase():
             raise TerminatedError('Other side disconnected')
         return message
 
+    def get_block(self, sock):
+        buf = ''
+        offset = 0
+        tries = 0
+        while offset < AES.block_size:
+            try:
+                rx = sock.recv(AES.block_size - offset)
+                offset += len(rx)
+                buf += rx
+            except Exception as e:
+                if tries < 5:
+                    raise e
+        return buf
+
     def get_message(self, sock):
         ciphertext = ''
         message = ''
         try:
-            while (not message) or (message[-1] != ETB):
+            while True:
+                block = self.get_block(sock)
+                message += self.cipher.decrypt(block)
                 start_len = len(ciphertext)
-                ciphertext += sock.recv(1)
-                if len(ciphertext) == start_len:
-                    raise HUPError('recv returned no data (HUP?)')
-                if len(ciphertext) % AES.block_size == 0:
-                    decrypted = self.cipher.decrypt(ciphertext)
-                    print "block: " + decrypted
-                    message+= decrypted
-                    ciphertext = ''
-            print "got json:" + message
+                if message[-1] == ETB:
+                    break
+            #~ print "got json:" + message
             message = json.loads(message[:-1], object_hook = self.decoder_hook)
             return message
         finally:
@@ -255,14 +267,14 @@ class LipSyncBase():
         plaintext+=ETB
         self.logger.debug('Padded = |'+ plaintext+'|')
         self.logger.debug('msglen = '+str(len(plaintext)))
-	
+
         #sleep()
-	ciphertext = self.cipher.encrypt(plaintext)
-	length = len(plaintext)
-	while length != 0:
-	    self.logger.debug('Length to send = '+str(length))
+        ciphertext = self.cipher.encrypt(plaintext)
+        length = len(plaintext)
+        while length != 0:
+            self.logger.debug('Length to send = '+str(length))
             length -= sock.send(ciphertext[len(ciphertext)-length:])
-        self.logger.debug('Sent ' + str(message))
+            self.logger.debug('Sent ' + str(message))
 
     def sync(self, sock, table = None):
         """ table is None for server mode"""
@@ -288,7 +300,7 @@ class LipSyncClient(LipSyncBase):
         self.update_table(table)
         self.send_status_message(sock, table)
         table, needed_records = self.process_status_message(sock, table)
-        self.logger.debug('Needed Records = '+needed_records)
+        self.logger.debug('Needed Records = '+str(needed_records))
         return table, needed_records
 
     def process_status_message(self, sock, table):
@@ -306,6 +318,7 @@ class LipSyncServer(LipSyncBase):
             try:
                 self.logger.debug('Waiting For connection')
                 syncsock = sock.accept()[0]
+
                 SyncThread(syncsock, self.conn, self.secret, self.encoder, self.decoder_hook, self.log_handler).start()
             except:
                 self.conn.rollback()
