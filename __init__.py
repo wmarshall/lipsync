@@ -44,7 +44,7 @@ class SyncThread(Thread):
     def __init__(self, sock, connection, secret, encoder = None, decoder_hook = None, log_handler = None, *args, **kwargs):
         super(SyncThread, self).__init__()
         self.sock = sock
-        self.lss = LipSyncServer(connection, secret, encoder, decoder_hook, logging.NullHandler())
+        self.lss = LipSyncServer(connection, secret, encoder, decoder_hook, None)
 
     def run(self):
         self.lss.logger.debug('Starting SyncThread')
@@ -186,6 +186,12 @@ class LipSyncBase():
                 for key in message['record'].keys(): #fill in missing data to
                     if not message['record'].get(key): #prevent bad coercion of null values
                        message['record'][key] = 0
+		
+                self.logger.debug('SQL = ' + cur.mogrify(str('INSERT INTO ' + table + '(' +
+                            ', '.join(message['record'].keys()) + ') VALUES (' +
+                            ', '.join(
+                                ['%('+x+')s' for x in message['record'].keys()]
+                                ) +')'), message['record']))
                 cur.execute('INSERT INTO ' + table + '(' +
                             ', '.join(message['record'].keys()) + ') VALUES (' +
                             ', '.join(
@@ -320,7 +326,8 @@ class LipSyncServer(LipSyncBase):
                 syncsock = sock.accept()[0]
 
                 SyncThread(syncsock, self.conn, self.secret, self.encoder, self.decoder_hook, self.log_handler).start()
-            except:
+            except Exception as e:
+		self.logger.debug(e)
                 self.conn.rollback()
         sock.close()
 
