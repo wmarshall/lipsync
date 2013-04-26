@@ -13,6 +13,9 @@ import socket
 from random import randint
 from time import sleep
 
+
+DEFAULT_HANDLER = logging.StreamHandler()
+
 UUID_COL_NAME = '_lipsync_uuid'
 LOCAL_ID_COL_NAME = '_local_lipsync_id'
 ETB = chr(0x17)
@@ -60,13 +63,14 @@ class LipSyncBase():
         self.cipher = AES.new(self.key.digest())
         self.encoder = encoder
         self.decoder_hook = decoder_hook
-        self.logger = logging.getLogger('QRID')
+        self.logger = logging.getLogger('LipSync')
         self.logger.setLevel(logging.DEBUG)
         self.log_handler = log_handler
         if log_handler:
             self.logger.addHandler(log_handler)
         else:
-            self.logger.addHandler(logging.StreamHandler())
+            self.logger.removeHandler(DEFAULT_HANDLER)
+            self.logger.addHandler(DEFAULT_HANDLER)
 
     def init_table(self, table):
         cur = self.conn.cursor()
@@ -186,7 +190,7 @@ class LipSyncBase():
                 for key in message['record'].keys(): #fill in missing data to
                     if not message['record'].get(key): #prevent bad coercion of null values
                        message['record'][key] = 0
-		
+
                 self.logger.debug('SQL = ' + cur.mogrify(str('INSERT INTO ' + table + '(' +
                             ', '.join(message['record'].keys()) + ') VALUES (' +
                             ', '.join(
@@ -327,7 +331,7 @@ class LipSyncServer(LipSyncBase):
 
                 SyncThread(syncsock, self.conn, self.secret, self.encoder, self.decoder_hook, self.log_handler).start()
             except Exception as e:
-		self.logger.debug(e)
+                self.logger.debug(e)
                 self.conn.rollback()
         sock.close()
 
