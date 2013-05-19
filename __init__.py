@@ -56,14 +56,17 @@ class SyncThread(Thread):
 class LipSyncBase():
     """WARNING: ONLY SUPPORTS POSTGRESQL/Psycopg2"""
     def __init__(self, connection, secret, encoder = None, decoder_hook = None,
-                 log_handler = None):
+                 logger = 'LipSync', log_handler = None):
         self.conn = connection
         self.secret = secret
         self.key = SHA256.new(secret)
         self.cipher = AES.new(self.key.digest())
         self.encoder = encoder
         self.decoder_hook = decoder_hook
-        self.logger = logging.getLogger('LipSync')
+        try:
+            self.logger = logging.getLogger(logger)
+        except:
+            self.logger = logger
         self.logger.setLevel(logging.DEBUG)
         self.log_handler = log_handler
         if log_handler:
