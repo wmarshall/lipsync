@@ -5,6 +5,7 @@ from select import select
 from time import strftime
 from Crypto.Cipher import AES
 from Crypto.Hash import SHA256
+from Crypto.Util import Counter
 from threading import Thread
 import logging
 import json
@@ -21,8 +22,12 @@ LOCAL_ID_COL_NAME = '_local_lipsync_id'
 ETB = chr(0x17)
 CONTINUE = 'LipSync_Continue'
 DONE = 'LipSync_Done'
+VERSION = 'LipSync_Version'
+DIGEST = 'LipSync_Digest'
+__version__ = 1.0
 
 TIMEOUT = 30
+
 
 class LipSyncError(Exception):
     def __init__(self, message):
@@ -44,7 +49,8 @@ class HUPError(SyncError):
     pass
 
 class SyncThread(Thread):
-    def __init__(self, sock, connection, secret, encoder = None, decoder_hook = None, log_handler = None, *args, **kwargs):
+    def __init__(self, sock, connection, secret, encoder = None,
+                 decoder_hook = None, log_handler = None, *args, **kwargs):
         super(SyncThread, self).__init__()
         self.sock = sock
         self.lss = LipSyncServer(connection, secret, encoder, decoder_hook, None)
@@ -60,7 +66,10 @@ class LipSyncBase():
         self.conn = connection
         self.secret = secret
         self.key = SHA256.new(secret)
-        self.cipher = AES.new(self.key.digest())
+        self.AESEncrypter = AES.new(self.key.digest(), AES.MODE_CTR,
+            counter = Counter.new(64, prefix = self.key.digest()[-8:]))
+        self.AESDecrypter = AES.new(self.key.digest(), AES.MODE_CTR,
+            counter = Counter.new(64, prefix = self.key.digest()[-8:]))
         self.encoder = encoder
         self.decoder_hook = decoder_hook
         try:
@@ -138,10 +147,14 @@ class LipSyncBase():
         self.send_message(sock, self.create_continue_message(status))
 
     def auth_valid(self, auth):
-        return auth == [self.key.hexdigest()]
+        return auth[VERSION] == __version__ and \
+                auth[DIGEST] == self.key.hexdigest()
 
     def create_auth_message(self):
-        return [self.key.hexdigest()]
+        return {
+                VERSION:__version__,
+                DIGEST:self.key.hexdigest()
+                }
 
     def do_auth(self, sock):
         self.send_auth_message(sock)
@@ -182,15 +195,21 @@ class LipSyncBase():
                 continue
             try:
                 self.logger.debug('Processing record = '+str(message['record']))
-                for key in message['record'].keys(): #fill in missing data to
-                    if not message['record'].get(key): #prevent bad coercion of null values
+                for key in message['record'].keys():
+                    """
+                    Fill in missing data to prevent nasty coercion of null values.
+                    This should probably be unnecessary, but it's a useful trick
+                    for buggy clients.
+                    """
+                    if not message['record'].get(key):
                        message['record'][key] = 0
 
-                self.logger.debug('SQL = ' + cur.mogrify(str('INSERT INTO ' + table + '(' +
-                            ', '.join(message['record'].keys()) + ') VALUES (' +
-                            ', '.join(
-                                ['%('+x+')s' for x in message['record'].keys()]
-                                ) +')'), message['record']))
+                self.logger.debug('SQL = ' + cur.mogrify(str('INSERT INTO ' +
+                                  table + '(' +
+                                  ', '.join(message['record'].keys()) +
+                                  ') VALUES (' + ', '.join(
+                                  ['%('+x+')s' for x in message['record'].keys()]
+                                  ) +')'), message['record']))
                 cur.execute('INSERT INTO ' + table + '(' +
                             ', '.join(message['record'].keys()) + ') VALUES (' +
                             ', '.join(
@@ -255,7 +274,7 @@ class LipSyncBase():
         try:
             while True:
                 block = self.get_block(sock)
-                message += self.cipher.decrypt(block)
+                message += self.AESDecrypter.decrypt(block)
                 start_len = len(ciphertext)
                 if message[-1] == ETB:
                     break
@@ -274,7 +293,7 @@ class LipSyncBase():
         self.logger.debug('msglen = '+str(len(plaintext)))
 
         #sleep()
-        ciphertext = self.cipher.encrypt(plaintext)
+        ciphertext = self.AESEncrypter.encrypt(plaintext)
         length = len(plaintext)
         while length != 0:
             self.logger.debug('Length to send = '+str(length))
@@ -324,7 +343,8 @@ class LipSyncServer(LipSyncBase):
                 self.logger.debug('Waiting For connection')
                 syncsock = sock.accept()[0]
 
-                SyncThread(syncsock, self.conn, self.secret, self.encoder, self.decoder_hook, self.log_handler).start()
+                SyncThread(syncsock, self.conn, self.secret, self.encoder,
+                    self.decoder_hook, self.log_handler).start()
             except Exception as e:
                 self.logger.debug(e)
                 self.conn.rollback()

@@ -5,13 +5,13 @@ tables.
 
 How it works:
 Wrapper - JSON - UTF8
-Encryption - AES-256 - Key is sha256digest of secret, specified by user
+Encryption - AES-256 in CTR MODE - Key is sha256digest of secret, specified by user
 - 1. Sending - Pad outgoing plaintexts with whitespace,
                ensure that last char of block is ETB
 - 2. Recieving - decrypt each block as it comes, look for ETB
 Lock - Lock the database/ your view of it and enter a transaction : TODO
 Auth - Symmetric Encryption of a secret, both sides validate :
-- 1. [SHA256HEXDIGESTOFSECRET] - no other objects, just string
+- 1. {LipSync_Version:1.0, LipSync_Digest:"SHA256HEXDIGESTOFSECRET", } - no other objects, just string
 - 2. Terminate if Auth not acceptable
 - 3. Else {LipSync_Continue = True}
 Status - set up table to sync
