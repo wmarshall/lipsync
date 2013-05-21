@@ -10,6 +10,7 @@ from threading import Thread
 import logging
 import json
 import socket
+import re
 
 from random import randint
 from time import sleep
@@ -28,6 +29,14 @@ __version__ = 1.0
 
 TIMEOUT = 30
 
+PARAM_PYFORMAT = 'pyformat'
+PARAM_QMARK = 'qmark'
+PARAM_NUMERIC = 'numeric'
+PARAM_NAMED = 'named'
+PARAM_FORMAT = 'format'
+FORMATS = [PARAM_PYFORMAT, PARAM_QMARK, PARAM_NUMERIC, PARAM_NAMED, PARAM_FORMAT]
+
+_PYFORMAT_RE = re.compile('%\((.+?)\)s')
 
 class LipSyncError(Exception):
     def __init__(self, message):
@@ -48,6 +57,9 @@ class TerminatedError(SyncError):
 class HUPError(SyncError):
     pass
 
+class ParamError(LipSyncError):
+    pass
+
 class SyncThread(Thread):
     def __init__(self, sock, connection, secret, encoder = None,
                  decoder_hook = None, log_handler = None, *args, **kwargs):
@@ -62,7 +74,7 @@ class SyncThread(Thread):
 class LipSyncBase():
     """WARNING: ONLY SUPPORTS POSTGRESQL/Psycopg2"""
     def __init__(self, connection, secret, encoder = None, decoder_hook = None,
-                 logger = 'LipSync', log_handler = None):
+                 logger = 'LipSync', log_handler = None, paramstyle = PARAM_PYFORMAT):
         self.conn = connection
         self.secret = secret
         self.key = SHA256.new(secret)
@@ -72,6 +84,9 @@ class LipSyncBase():
             counter = Counter.new(64, prefix = self.key.digest()[-8:]))
         self.encoder = encoder
         self.decoder_hook = decoder_hook
+        if paramstyle not in FORMATS:
+            raise
+        self.paramstyle = paramstyle
         try:
             self.logger = logging.getLogger(logger)
         except:
@@ -84,33 +99,59 @@ class LipSyncBase():
             self.logger.removeHandler(DEFAULT_HANDLER)
             self.logger.addHandler(DEFAULT_HANDLER)
 
+    def mogrify(self, query, parameters = None):
+        if not parameters:
+            return query, []
+        if self.paramstyle == PARAM_PYFORMAT:
+            return query, parameters
+        elif self.paramstyle == PARAM_QMARK:
+            qparams = _PYFORMAT_RE.findall(query)
+            return _PYFORMAT_RE.sub('?', query), [parameters[x] for x in qparams]
+        elif self.paramstyle == PARAM_NUMERIC:
+            qparams = _PYFORMAT_RE.findall(query)
+            count = 0
+            def replnumeric(match):
+                count += 1
+                return ':' + str(count)
+            return _PYFORMAT_RE.sub(replnumeric, query), [parameters[x] for x in qparams]
+        elif self.paramstyle == PARAM_NAMED:
+            qparams = _PYFORMAT_RE.findall(query)
+            def replnamed(match):
+                return ':' + match.group()
+            return _PYFORMAT_RE.sub(replnamed, query), [parameters[x] for x in qparams]
+        elif self.paramstyle == PARAM_FORMAT:
+            qparams = _PYFORMAT_RE.findall(query)
+            return _PYFORMAT_RE.sub('%s', query), [parameters[x] for x in qparams]
+
+
+
     def init_table(self, table):
         cur = self.conn.cursor()
         cols = self.get_col_map(table, omit_local = False)
         if UUID_COL_NAME not in cols:
-            cur.execute('ALTER TABLE ' + table + ' ADD COLUMN ' +
-                        UUID_COL_NAME + ' UUID')
+            cur.execute(*self.mogrify('ALTER TABLE ' + table + ' ADD COLUMN ' +
+                        UUID_COL_NAME + ' UUID'))
         if LOCAL_ID_COL_NAME not in cols:
-            cur.execute('ALTER TABLE ' + table + ' ADD COLUMN ' +
-                        LOCAL_ID_COL_NAME + ' SERIAL UNIQUE')
+            cur.execute(*self.mogrify('ALTER TABLE ' + table + ' ADD COLUMN ' +
+                        LOCAL_ID_COL_NAME + ' SERIAL UNIQUE'))
         self.conn.commit()
 
     def update_table(self, table):
         self.init_table(table)
         cur = self.conn.cursor()
-        cur.execute('SELECT ' + LOCAL_ID_COL_NAME + ' FROM ' + table +
-                    ' WHERE ' + UUID_COL_NAME + ' IS NULL')
+        cur.execute(*self.mogrify('SELECT ' + LOCAL_ID_COL_NAME + ' FROM ' + table +
+                    ' WHERE ' + UUID_COL_NAME + ' IS NULL'))
         rows = cur.fetchall();
         for row in rows:
-            cur.execute('UPDATE ' + table + ' SET ' + UUID_COL_NAME +
+            cur.execute(*self.mogrify('UPDATE ' + table + ' SET ' + UUID_COL_NAME +
             ' = %(u)s WHERE ' + LOCAL_ID_COL_NAME + ' = %(i)s',
-            {'u': uuid4().hex, 'i': row[0]})
+            {'u': uuid4().hex, 'i': row[0]}))
         self.conn.commit()
 
     def get_col_map(self, table, omit_local = True):
         cur = self.conn.cursor()
         cols = []
-        cur.execute('SELECT * FROM ' + table)
+        cur.execute(*self.mogrify('SELECT * FROM ' + table))
         cols = [ col[0] for col in cur.description ]
         if omit_local:
             cols.remove(LOCAL_ID_COL_NAME)
@@ -120,7 +161,7 @@ class LipSyncBase():
     def get_uuid_map(self, table):
         cur = self.conn.cursor()
         uuids = []
-        cur.execute('SELECT ' + UUID_COL_NAME + ' FROM ' + table)
+        cur.execute(*self.mogrify('SELECT ' + UUID_COL_NAME + ' FROM ' + table))
         for uuid in cur.fetchall():
             uuids.append(uuid[0])
         self.conn.commit()
@@ -210,23 +251,23 @@ class LipSyncBase():
                                   ') VALUES (' + ', '.join(
                                   ['%('+x+')s' for x in message['record'].keys()]
                                   ) +')'), message['record']))
-                cur.execute('INSERT INTO ' + table + '(' +
+                cur.execute(*self.mogrify('INSERT INTO ' + table + '(' +
                             ', '.join(message['record'].keys()) + ') VALUES (' +
                             ', '.join(
                                 ['%('+x+')s' for x in message['record'].keys()]
-                                ) +')', message['record'])
+                                ) +')', message['record']))
                 self.conn.commit()
             finally:
                 self.conn.rollback()
-                cur.execute('SELECT * FROM '+table)
+                cur.execute(*self.mogrify('SELECT * FROM '+table))
                 self.logger.debug('Table contents' + str(cur.fetchall()))
 
     def send_response_messages(self, sock, table, uuids):
         cols = self.get_col_map(table)
         cur = self.conn.cursor()
         for uuid in uuids:
-            cur.execute('SELECT ' + ', '.join(cols) + ' FROM ' + table +
-                        ' WHERE ' + UUID_COL_NAME + ' = %(u)s', {'u': uuid})
+            cur.execute(*self.mogrify('SELECT ' + ', '.join(cols) + ' FROM ' + table +
+                        ' WHERE ' + UUID_COL_NAME + ' = %(u)s', {'u': uuid}))
             col_data_dict = dict(zip(cols, cur.fetchone()))
             self.send_message(sock, {'uuid': uuid, 'record': col_data_dict})
         self.send_message(sock, {DONE:True})

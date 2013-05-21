@@ -25,6 +25,7 @@ import sys
 import socket
 import psycopg2
 import psycopg2.extras
+import sqlite3
 from lipsync import LipSyncClient, LipSyncServer
 
 addr = ('0.0.0.0',8000)
@@ -32,21 +33,19 @@ addr = ('0.0.0.0',8000)
 def main():
     sock = socket.socket()
     if len(sys.argv) > 1 and sys.argv[1] == 'server':
-        conn = psycopg2.connect(connection_factory=psycopg2.extras.DictConnection,
-                            dbname = 'testdb_server')
+        conn = sqlite3.connect('testdb_server.db')
         sock.bind(addr)
         sock.listen(1)
         print 'Listening on ', addr
-        lss = LipSyncServer(conn,'TEST')
+        lss = LipSyncServer(conn,'TEST', paramstyle = sqlite3.paramstyle)
         lss.listen(sock)
         sock.close()
         return 0
-    conn = psycopg2.connect(connection_factory=psycopg2.extras.DictConnection,
-                            dbname = 'testdb_client')
+    conn = sqlite3.connect('testdb_client.db')
     print 'Connecting to ', addr
     sock.connect(addr)
     print 'Connected'
-    lsc = LipSyncClient(conn,'TEST')
+    lsc = LipSyncClient(conn,'TEST', paramstyle = sqlite3.paramstyle)
     print 'Syncing'
     print lsc.sync(sock, 'test')
     return 0
