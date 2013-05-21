@@ -37,7 +37,7 @@ def main():
         sock.bind(addr)
         sock.listen(1)
         print 'Listening on ', addr
-        lss = LipSyncServer(conn,'TEST', paramstyle = sqlite3.paramstyle)
+        lss = LipSyncServer(conn,'TEST', paramstyle = sqlite3.paramstyle, threadsafety = sqlite3.threadsafety ,sqlite_hack = True)
         lss.listen(sock)
         sock.close()
         return 0
@@ -45,7 +45,7 @@ def main():
     print 'Connecting to ', addr
     sock.connect(addr)
     print 'Connected'
-    lsc = LipSyncClient(conn,'TEST', paramstyle = sqlite3.paramstyle)
+    lsc = LipSyncClient(conn,'TEST', paramstyle = sqlite3.paramstyle, threadsafety = sqlite3.threadsafety ,sqlite_hack = True)
     print 'Syncing'
     print lsc.sync(sock, 'test')
     return 0

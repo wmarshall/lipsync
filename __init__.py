@@ -20,6 +20,7 @@ DEFAULT_HANDLER = logging.StreamHandler()
 
 UUID_COL_NAME = '_lipsync_uuid'
 LOCAL_ID_COL_NAME = '_local_lipsync_id'
+SQLITE_LOCAL_ID_COL_NAME = '_rowid_'
 ETB = chr(0x17)
 CONTINUE = 'LipSync_Continue'
 DONE = 'LipSync_Done'
@@ -37,6 +38,11 @@ PARAM_FORMAT = 'format'
 FORMATS = [PARAM_PYFORMAT, PARAM_QMARK, PARAM_NUMERIC, PARAM_NAMED, PARAM_FORMAT]
 
 _PYFORMAT_RE = re.compile('%\((.+?)\)s')
+
+THREADSAFETY_NONE = 0
+THREADSAFETY_MODULE = 1
+THREADSAFETY_CONNECTION = 2
+THREADSAFETY_CURSOR = 3
 
 class LipSyncError(Exception):
     def __init__(self, message):
@@ -62,7 +68,7 @@ class ParamError(LipSyncError):
 
 class SyncThread(Thread):
     def __init__(self, sock, connection, secret, encoder = None,
-                 decoder_hook = None, log_handler = None, *args, **kwargs):
+                 decoder_hook = None, log_handler = None, paramstyle = PARAM_PYFORMAT, threadsafety = THREADSAFETY_CONNECTION, sqlite_hack = False):
         super(SyncThread, self).__init__()
         self.sock = sock
         self.lss = LipSyncServer(connection, secret, encoder, decoder_hook, None)
@@ -72,9 +78,8 @@ class SyncThread(Thread):
         self.lss.sync(self.sock)
 
 class LipSyncBase():
-    """WARNING: ONLY SUPPORTS POSTGRESQL/Psycopg2"""
     def __init__(self, connection, secret, encoder = None, decoder_hook = None,
-                 logger = 'LipSync', log_handler = None, paramstyle = PARAM_PYFORMAT):
+                 logger = 'LipSync', log_handler = None, paramstyle = PARAM_PYFORMAT, threadsafety = THREADSAFETY_CONNECTION, sqlite_hack = False):
         self.conn = connection
         self.secret = secret
         self.key = SHA256.new(secret)
@@ -87,6 +92,8 @@ class LipSyncBase():
         if paramstyle not in FORMATS:
             raise
         self.paramstyle = paramstyle
+        self.sqlite_hack = sqlite_hack
+        self.threadsafety = threadsafety
         try:
             self.logger = logging.getLogger(logger)
         except:
@@ -131,7 +138,7 @@ class LipSyncBase():
         if UUID_COL_NAME not in cols:
             cur.execute(*self.mogrify('ALTER TABLE ' + table + ' ADD COLUMN ' +
                         UUID_COL_NAME + ' UUID'))
-        if LOCAL_ID_COL_NAME not in cols:
+        if (not self.sqlite_hack) and LOCAL_ID_COL_NAME not in cols:
             cur.execute(*self.mogrify('ALTER TABLE ' + table + ' ADD COLUMN ' +
                         LOCAL_ID_COL_NAME + ' SERIAL UNIQUE'))
         self.conn.commit()
@@ -139,12 +146,15 @@ class LipSyncBase():
     def update_table(self, table):
         self.init_table(table)
         cur = self.conn.cursor()
-        cur.execute(*self.mogrify('SELECT ' + LOCAL_ID_COL_NAME + ' FROM ' + table +
+        temp_col_name = LOCAL_ID_COL_NAME
+        if self.sqlite_hack:
+            temp_col_name = SQLITE_LOCAL_ID_COL_NAME
+        cur.execute(*self.mogrify('SELECT ' + temp_col_name + ' FROM ' + table +
                     ' WHERE ' + UUID_COL_NAME + ' IS NULL'))
         rows = cur.fetchall();
         for row in rows:
             cur.execute(*self.mogrify('UPDATE ' + table + ' SET ' + UUID_COL_NAME +
-            ' = %(u)s WHERE ' + LOCAL_ID_COL_NAME + ' = %(i)s',
+            ' = %(u)s WHERE ' + temp_col_name + ' = %(i)s',
             {'u': uuid4().hex, 'i': row[0]}))
         self.conn.commit()
 
@@ -154,7 +164,8 @@ class LipSyncBase():
         cur.execute(*self.mogrify('SELECT * FROM ' + table))
         cols = [ col[0] for col in cur.description ]
         if omit_local:
-            cols.remove(LOCAL_ID_COL_NAME)
+            if not self.sqlite_hack:
+                cols.remove(LOCAL_ID_COL_NAME)
         self.conn.commit()
         return cols
 
@@ -245,12 +256,6 @@ class LipSyncBase():
                     if not message['record'].get(key):
                        message['record'][key] = 0
 
-                self.logger.debug('SQL = ' + cur.mogrify(str('INSERT INTO ' +
-                                  table + '(' +
-                                  ', '.join(message['record'].keys()) +
-                                  ') VALUES (' + ', '.join(
-                                  ['%('+x+')s' for x in message['record'].keys()]
-                                  ) +')'), message['record']))
                 cur.execute(*self.mogrify('INSERT INTO ' + table + '(' +
                             ', '.join(message['record'].keys()) + ') VALUES (' +
                             ', '.join(
@@ -383,9 +388,11 @@ class LipSyncServer(LipSyncBase):
             try:
                 self.logger.debug('Waiting For connection')
                 syncsock = sock.accept()[0]
-
-                SyncThread(syncsock, self.conn, self.secret, self.encoder,
-                    self.decoder_hook, self.log_handler).start()
+                if self.threadsafety >= THREADSAFETY_CONNECTION:
+                    SyncThread(syncsock, self.conn, self.secret, self.encoder,
+                        self.decoder_hook, self.log_handler, self.paramstyle, self.threadsafety, self.sqlite_hack).start()
+                else:
+                    self.sync(syncsock)
             except Exception as e:
                 self.logger.debug(e)
                 self.conn.rollback()
