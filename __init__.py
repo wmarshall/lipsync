@@ -35,7 +35,8 @@ PARAM_QMARK = 'qmark'
 PARAM_NUMERIC = 'numeric'
 PARAM_NAMED = 'named'
 PARAM_FORMAT = 'format'
-FORMATS = [PARAM_PYFORMAT, PARAM_QMARK, PARAM_NUMERIC, PARAM_NAMED, PARAM_FORMAT]
+FORMATS = [PARAM_PYFORMAT, PARAM_QMARK, PARAM_NUMERIC, \
+    PARAM_NAMED, PARAM_FORMAT]
 
 _PYFORMAT_RE = re.compile('%\((.+?)\)s')
 
@@ -68,18 +69,58 @@ class ParamError(LipSyncError):
 
 class SyncThread(Thread):
     def __init__(self, sock, connection, secret, encoder = None,
-                 decoder_hook = None, log_handler = None, paramstyle = PARAM_PYFORMAT, threadsafety = THREADSAFETY_CONNECTION, sqlite_hack = False):
+                 decoder_hook = None, log_handler = None,
+                 paramstyle = PARAM_PYFORMAT,
+                 threadsafety = THREADSAFETY_CONNECTION, sqlite_hack = False):
+        """
+        Constructs a thread that syncs with a client connected to sock using \
+            the database connection. Should not be directly used in most cases.
+        """
         super(SyncThread, self).__init__()
         self.sock = sock
-        self.lss = LipSyncServer(connection, secret, encoder, decoder_hook, None)
+        self.lss = LipSyncServer(connection, secret, encoder, decoder_hook,
+            log_handler = log_handler, paramstyle = paramstyle,
+            threadsafety = threadsafety, sqlite_hack = sqlite_hack)
 
     def run(self):
         self.lss.logger.debug('Starting SyncThread')
         self.lss.sync(self.sock)
 
 class LipSyncBase():
+
+    """Base class for LipSync objects. Should not be used directly."""
     def __init__(self, connection, secret, encoder = None, decoder_hook = None,
-                 logger = 'LipSync', log_handler = None, paramstyle = PARAM_PYFORMAT, threadsafety = THREADSAFETY_CONNECTION, sqlite_hack = False):
+                 logger = 'LipSync', log_handler = None,
+                 paramstyle = PARAM_PYFORMAT,
+                 threadsafety = THREADSAFETY_CONNECTION, sqlite_hack = False):
+        """
+        Base constructor for LipSync objects.
+
+        Parameters:
+        connection -- A DB 2.0 (see PEP 249) connection to a relational \
+            database.
+        secret -- A string representing a secret passphrase known to the \
+            server and all clients.
+        encoder -- An optional json.JSONEncoder used when serializing objects.
+        decoder_hook -- An optional callable that returns a specialized object \
+            from a serialized JSON object.
+        logger -- An optional string or logging.Logger object that is used to \
+            recieve debug information. Defaults to 'LipSync'.
+        log_handler -- An optional logging.LogHandler object that is used to \
+            route debug information.
+        paramstyle -- An optional string that denotes what parameter style the \
+            connection object uses. Typically, the database module's \
+            paramstyle attribute can be used, but the PARAM_* constants \
+            have been provided for convenience.
+        threadsafety -- An optional int that denotes how threadsafe the \
+            database connection is, used for a multithreaded server. \
+            Typically, the database module's threadsafety attribute can be \
+            used, but the THREADSAFETY_* constants have been provided for \
+            convenience.
+        sqlite_hack -- A boolean indicating if the connection is to an SQLite \
+            database. Used mostly to work around SQLite's minimalism.
+
+        """
         self.conn = connection
         self.secret = secret
         self.key = SHA256.new(secret)
@@ -113,22 +154,26 @@ class LipSyncBase():
             return query, parameters
         elif self.paramstyle == PARAM_QMARK:
             qparams = _PYFORMAT_RE.findall(query)
-            return _PYFORMAT_RE.sub('?', query), [parameters[x] for x in qparams]
+            return _PYFORMAT_RE.sub('?', query), \
+                [parameters[x] for x in qparams]
         elif self.paramstyle == PARAM_NUMERIC:
             qparams = _PYFORMAT_RE.findall(query)
             count = 0
             def replnumeric(match):
                 count += 1
                 return ':' + str(count)
-            return _PYFORMAT_RE.sub(replnumeric, query), [parameters[x] for x in qparams]
+            return _PYFORMAT_RE.sub(replnumeric, query), \
+                [parameters[x] for x in qparams]
         elif self.paramstyle == PARAM_NAMED:
             qparams = _PYFORMAT_RE.findall(query)
             def replnamed(match):
                 return ':' + match.group()
-            return _PYFORMAT_RE.sub(replnamed, query), [parameters[x] for x in qparams]
+            return _PYFORMAT_RE.sub(replnamed, query), \
+                [parameters[x] for x in qparams]
         elif self.paramstyle == PARAM_FORMAT:
             qparams = _PYFORMAT_RE.findall(query)
-            return _PYFORMAT_RE.sub('%s', query), [parameters[x] for x in qparams]
+            return _PYFORMAT_RE.sub('%s', query), \
+                [parameters[x] for x in qparams]
 
 
 
@@ -153,9 +198,9 @@ class LipSyncBase():
                     ' WHERE ' + UUID_COL_NAME + ' IS NULL'))
         rows = cur.fetchall();
         for row in rows:
-            cur.execute(*self.mogrify('UPDATE ' + table + ' SET ' + UUID_COL_NAME +
-            ' = %(u)s WHERE ' + temp_col_name + ' = %(i)s',
-            {'u': uuid4().hex, 'i': row[0]}))
+            cur.execute(*self.mogrify('UPDATE ' + table + ' SET ' +
+                UUID_COL_NAME + ' = %(u)s WHERE ' + temp_col_name + ' = %(i)s',
+                {'u': uuid4().hex, 'i': row[0]}))
         self.conn.commit()
 
     def get_col_map(self, table, omit_local = True):
@@ -249,9 +294,10 @@ class LipSyncBase():
                 self.logger.debug('Processing record = '+str(message['record']))
                 for key in message['record'].keys():
                     """
-                    Fill in missing data to prevent nasty coercion of null values.
-                    This should probably be unnecessary, but it's a useful trick
-                    for buggy clients.
+                    Fill in missing data to prevent nasty coercion of null \
+                        values.
+                    This should probably be unnecessary, but it's a useful \
+                        trick for buggy clients.
                     """
                     if not message['record'].get(key):
                        message['record'][key] = 0
@@ -271,8 +317,8 @@ class LipSyncBase():
         cols = self.get_col_map(table)
         cur = self.conn.cursor()
         for uuid in uuids:
-            cur.execute(*self.mogrify('SELECT ' + ', '.join(cols) + ' FROM ' + table +
-                        ' WHERE ' + UUID_COL_NAME + ' = %(u)s', {'u': uuid}))
+            cur.execute(*self.mogrify('SELECT ' + ', '.join(cols) + ' FROM ' +
+                table + ' WHERE ' + UUID_COL_NAME + ' = %(u)s', {'u': uuid}))
             col_data_dict = dict(zip(cols, cur.fetchone()))
             self.send_message(sock, {'uuid': uuid, 'record': col_data_dict})
         self.send_message(sock, {DONE:True})
@@ -324,7 +370,6 @@ class LipSyncBase():
                 start_len = len(ciphertext)
                 if message[-1] == ETB:
                     break
-            #~ print "got json:" + message
             message = json.loads(message[:-1], object_hook = self.decoder_hook)
             return message
         finally:
@@ -338,7 +383,6 @@ class LipSyncBase():
         self.logger.debug('Padded = |'+ plaintext+'|')
         self.logger.debug('msglen = '+str(len(plaintext)))
 
-        #sleep()
         ciphertext = self.AESEncrypter.encrypt(plaintext)
         length = len(plaintext)
         while length != 0:
@@ -347,8 +391,15 @@ class LipSyncBase():
             self.logger.debug('Sent ' + str(message))
 
     def sync(self, sock, table = None):
-        """ table is None for server mode"""
-        #~ sock.setblocking(0)
+        """
+        Syncs with a remote machine.
+
+        Parameters:
+        sock -- A socket.socket (or similar) object that is connected to a \
+            remote host.
+        table -- An optional string representing the name of the table to \
+            sync, or None for server mode. Defaults to None
+        """
         sock.settimeout(TIMEOUT)
         try:
             self.do_auth(sock)
@@ -360,12 +411,18 @@ class LipSyncBase():
             self.logger.debug('Exception ' + str(e))
         finally:
             self.terminate(sock)
-            #~ sock.shutdown(socket.SHUT_RDWR)
             sock.close()
             self.conn.rollback()
             self.logger.debug('Socket Closed')
 
 class LipSyncClient(LipSyncBase):
+
+    """
+    An object representing a LipSync Client.
+
+    Requires a string representing the table to sync for the sync() method.
+    Cannot be interchanged with a LipSyncServer.
+    """
     def do_status(self, sock, table):
         self.update_table(table)
         self.send_status_message(sock, table)
@@ -383,14 +440,28 @@ class LipSyncClient(LipSyncBase):
         return table, needed_records
 
 class LipSyncServer(LipSyncBase):
+
+    """
+    An object representing the LipSync Server.
+
+    Does not require a table to sync for the sync() method.
+    Cannot be interchanged with a LipSyncClient.
+    """
     def listen(self, sock):
+        """
+        Listens for connections, syncing with valid clients as they connect.
+
+        Parameters:
+        sock -- A socket object bound and listening on a port.
+        """
         while True:
             try:
                 self.logger.debug('Waiting For connection')
                 syncsock = sock.accept()[0]
                 if self.threadsafety >= THREADSAFETY_CONNECTION:
                     SyncThread(syncsock, self.conn, self.secret, self.encoder,
-                        self.decoder_hook, self.log_handler, self.paramstyle, self.threadsafety, self.sqlite_hack).start()
+                        self.decoder_hook, self.log_handler, self.paramstyle,
+                        self.threadsafety, self.sqlite_hack).start()
                 else:
                     self.sync(syncsock)
             except Exception as e:
