@@ -1,5 +1,4 @@
-# lipsync.py
-# Reference implementation
+# Reference implementation of LipSync
 from uuid import uuid4
 from select import select
 from time import strftime
