@@ -22,6 +22,8 @@ Message Format
 
 5. Blocks are encrypted before sending, and are decrypted one at a time on the recieving end, with the reciever checking the last block of each message ETB.
 
+6. Socket timeout is 30 seconds between bytes on each end, after which the side where the timeout is hit sends the Terminate message.
+
 Messages - By Order of Transmission
 ---------
 
