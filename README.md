@@ -5,6 +5,19 @@ LipSync is a library that synchronizes relational databases over a bidirectional
 It requires a connection to a relational database and a socket object passed in from the developer.
 LipSync is designed to be as simple as possible, abstracting the developer from all of the heavy lifting of syncing.
 
+### What LipSync Will Do
+
+* Sync two idendical tables (each column on the client is matched by a column on the server and vice versa)
+* Store persisten metadata in the table, identifying each row with a UUID, typically in the column __lipsync_uuid
+* Close your socket after using
+
+### What LipSync Will Not Do
+
+* Synchronize changes in the schema
+* Synchronize constraints or resolve integrity errors related to imbalanced constraints on the client or server side
+* Leave your data in an inconsistent state
+
+
 The Name
 ---------------
 
