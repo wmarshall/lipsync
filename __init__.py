@@ -119,8 +119,8 @@ class LipSyncBase():
             convenience.
         sqlite_hack -- A boolean indicating if the connection is to an SQLite \
             database. Used mostly to work around SQLite's minimalism.
-
         """
+
         self.conn = connection
         self.secret = secret
         self.key = SHA256.new(secret)
@@ -301,7 +301,7 @@ class LipSyncBase():
                     """
                     if not message['record'].get(key):
                        message['record'][key] = 0
-
+                message['record'][UUID_COL_NAME] = message['uuid']
                 cur.execute(*self.mogrify('INSERT INTO ' + table + '(' +
                             ', '.join(message['record'].keys()) + ') VALUES (' +
                             ', '.join(
@@ -315,6 +315,7 @@ class LipSyncBase():
 
     def send_response_messages(self, sock, table, uuids):
         cols = self.get_col_map(table)
+        cols.remove(UUID_COL_NAME)
         cur = self.conn.cursor()
         for uuid in uuids:
             cur.execute(*self.mogrify('SELECT ' + ', '.join(cols) + ' FROM ' +
@@ -391,6 +392,7 @@ class LipSyncBase():
             self.logger.debug('Sent ' + str(message))
 
     def sync(self, sock, table = None):
+
         """
         Syncs with a remote machine.
 
@@ -400,6 +402,7 @@ class LipSyncBase():
         table -- An optional string representing the name of the table to \
             sync, or None for server mode. Defaults to None
         """
+
         sock.settimeout(TIMEOUT)
         try:
             self.do_auth(sock)
@@ -423,6 +426,7 @@ class LipSyncClient(LipSyncBase):
     Requires a string representing the table to sync for the sync() method.
     Cannot be interchanged with a LipSyncServer.
     """
+
     def do_status(self, sock, table):
         self.update_table(table)
         self.send_status_message(sock, table)
@@ -447,13 +451,16 @@ class LipSyncServer(LipSyncBase):
     Does not require a table to sync for the sync() method.
     Cannot be interchanged with a LipSyncClient.
     """
+
     def listen(self, sock):
+
         """
         Listens for connections, syncing with valid clients as they connect.
 
         Parameters:
         sock -- A socket object bound and listening on a port.
         """
+
         while True:
             try:
                 self.logger.debug('Waiting For connection')
