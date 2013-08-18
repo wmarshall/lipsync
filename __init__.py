@@ -124,9 +124,11 @@ class LipSyncBase():
         self.secret = secret
         self.key = SHA256.new(secret)
         self.AESEncrypter = AES.new(self.key.digest(), AES.MODE_CTR,
-            counter = Counter.new(64, prefix = self.key.digest()[-8:]))
+            counter = Counter.new(64,
+                prefix = self.key.digest()[-8:], initial_value = 0))
         self.AESDecrypter = AES.new(self.key.digest(), AES.MODE_CTR,
-            counter = Counter.new(64, prefix = self.key.digest()[-8:]))
+            counter = Counter.new(64,
+                prefix = self.key.digest()[-8:], initial_value = 0))
         self.encoder = encoder
         self.decoder_hook = decoder_hook
         if paramstyle not in FORMATS:
