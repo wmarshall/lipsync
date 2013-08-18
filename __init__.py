@@ -123,12 +123,6 @@ class LipSyncBase():
         self.conn = connection
         self.secret = secret
         self.key = SHA256.new(secret)
-        self.AESEncrypter = AES.new(self.key.digest(), AES.MODE_CTR,
-            counter = Counter.new(64,
-                prefix = self.key.digest()[-8:], initial_value = 0))
-        self.AESDecrypter = AES.new(self.key.digest(), AES.MODE_CTR,
-            counter = Counter.new(64,
-                prefix = self.key.digest()[-8:], initial_value = 0))
         self.encoder = encoder
         self.decoder_hook = decoder_hook
         if paramstyle not in FORMATS:
@@ -136,6 +130,7 @@ class LipSyncBase():
         self.paramstyle = paramstyle
         self.sqlite_hack = sqlite_hack
         self.threadsafety = threadsafety
+        self.reset_crypto()
         try:
             self.logger = logging.getLogger(logger)
         except:
@@ -147,6 +142,14 @@ class LipSyncBase():
         else:
             self.logger.removeHandler(DEFAULT_HANDLER)
             self.logger.addHandler(DEFAULT_HANDLER)
+
+    def reset_crypto(self):
+        self.AESEncrypter = AES.new(self.key.digest(), AES.MODE_CTR,
+            counter = Counter.new(64,
+                prefix = self.key.digest()[-8:], initial_value = 0))
+        self.AESDecrypter = AES.new(self.key.digest(), AES.MODE_CTR,
+            counter = Counter.new(64,
+                prefix = self.key.digest()[-8:], initial_value = 0))
 
     def mogrify(self, query, parameters = None):
         if not parameters:
@@ -472,6 +475,7 @@ class LipSyncServer(LipSyncBase):
                         self.threadsafety, self.sqlite_hack).start()
                 else:
                     self.sync(syncsock)
+                    self.reset_crypto()
             except Exception as e:
                 self.logger.debug(e)
                 self.conn.rollback()
