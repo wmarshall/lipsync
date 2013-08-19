@@ -25,7 +25,7 @@ CONTINUE = 'LipSync_Continue'
 DONE = 'LipSync_Done'
 VERSION = 'LipSync_Version'
 DIGEST = 'LipSync_Digest'
-__version__ = 1.0
+__version__ = '1.0'
 
 TIMEOUT = 30
 
@@ -142,6 +142,7 @@ class LipSyncBase():
         else:
             self.logger.removeHandler(DEFAULT_HANDLER)
             self.logger.addHandler(DEFAULT_HANDLER)
+	self.logger.debug(self.key.hexdigest()[-16:])
 
     def reset_crypto(self):
         self.AESEncrypter = AES.new(self.key.digest(), AES.MODE_CTR,
