@@ -420,6 +420,7 @@ class LipSyncBase():
             self.terminate(sock)
             sock.close()
             self.conn.rollback()
+            self.reset_crypto()
             self.logger.debug('Socket Closed')
 
 class LipSyncClient(LipSyncBase):
@@ -475,7 +476,6 @@ class LipSyncServer(LipSyncBase):
                         self.threadsafety, self.sqlite_hack).start()
                 else:
                     self.sync(syncsock)
-                    self.reset_crypto()
             except Exception as e:
                 self.logger.debug(e)
                 self.conn.rollback()
